@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <ApplicationIcon>DiagScope.ico</ApplicationIcon>
+  </PropertyGroup>
+
+<ItemGroup><Compile Remove="Core.cs;AnalysisEngine.cs;Engine\**\*.cs;Protocol\**\*.cs;Receiver\**\*.cs;Tests\**\*.cs"/><ProjectReference Include="Engine\DiagScope.Engine.csproj"/></ItemGroup><ItemGroup><Resource Include="DiagScope.ico"/></ItemGroup>
+</Project>

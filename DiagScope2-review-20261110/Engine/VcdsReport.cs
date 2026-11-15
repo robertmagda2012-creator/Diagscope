@@ -1,0 +1,182 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
+
+namespace DiagScope2;
+
+public sealed record ReportFault(string Controller, string Code, string Details);
+
+public sealed record VcdsModule(string Address, string Name, string Labels)
+{
+    public string Software { get; set; } = "";
+    public string Hardware { get; set; } = "";
+    public string Component { get; set; } = "";
+    public string Coding { get; set; } = "";
+    public string Revision { get; set; } = "";
+    public int? ReportedFaults { get; set; }
+}
+
+public sealed record VehicleReport(Vehicle Vehicle, List<ReportFault> Faults)
+{
+    public DateTime? ScannedAt { get; init; }
+    public int? MileageKm { get; init; }
+    public string Chassis { get; init; } = "";
+    public string ChassisDescription { get; init; } = "";
+    public string Version { get; init; } = "";
+    public string LicensePlate { get; init; } = "";
+    public string EndDetails { get; init; } = "";
+    public List<string> RequestedAddresses { get; init; } = [];
+    public List<VcdsModule> Modules { get; init; } = [];
+    public bool Recognized => Modules.Count > 0 || RequestedAddresses.Count > 0 || Faults.Count > 0 ||
+        Version.Length > 0 && Vehicle.Vin.Length > 0;
+
+    const RegexOptions IgnoreCase = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
+    static readonly Regex ModuleHeader = new(@"^(?:Address|Adres|Adresse)\s+(?<address>[0-9A-F]{2})\s*:\s*(?<name>.*?)(?:\s+(?:Labels?|Labeldatei|Etykiety)\s*:\s*(?<labels>.*))?$", IgnoreCase);
+
+    public static VehicleReport Read(string text)
+    {
+        var lines = text.Split('\n').Select(line => line.Trim()).ToArray();
+        var header = string.Join("\n", lines.TakeWhile(line => !ModuleHeader.IsMatch(line)));
+        var vins = Regex.Matches(header, @"(?im)^VIN[\t ]*:[\t ]*([A-HJ-NPR-Z0-9]{17})(?![A-Z0-9])")
+            .Select(m => LogMetadata.ValidVin(m.Groups[1].Value)).Distinct().ToArray();
+        if (vins.Length > 1)
+            throw new FormatException("Nagłówek raportu zawiera różne numery VIN.");
+
+        var chassis = Regex.Match(Field(header, "Chassis Type|Typ (?:nadwozia|podwozia)|Fahrzeugtyp"),
+            @"^(?<code>[\w-]+)(?:\s+\(\s*(?:[\w-]+\s+-\s+)?(?<description>.*)\))?$");
+        string description = chassis.Groups["description"].Value.Trim();
+        var model = Regex.Match(description, @"^(?<make>VW|Volkswagen|Audi|Škoda|Skoda|Seat|Cupra|Bentley|Lamborghini)\s+(?<model>.+?)(?:\s*\([^()]*\))?$", IgnoreCase);
+        string make = Field(header, "Marka|Make|Brand");
+        string modelName = Field(header, "Model");
+        var vehicle = new Vehicle
+        {
+            Vin = vins.FirstOrDefault() ?? "",
+            Make = make.Length > 0 ? make : model.Groups["make"].Value,
+            Model = modelName.Length > 0 ? modelName : model.Groups["model"].Value,
+            Engine = Field(header, "Kod silnika|Engine code|Motorkennbuchstabe"),
+            Capacity = Field(header, "Pojemność(?: silnika)?|Displacement|Hubraum")
+        };
+        var miles = Regex.Match(header, @"\b(?:Mileage|Przebieg|Kilometerstand)[\t ]*:[\t ]*(\d+)[\t ]*km\b", IgnoreCase);
+        int? mileage = int.TryParse(miles.Groups[1].Value, CultureInfo.InvariantCulture, out int km) ? km : null;
+        var addresses = Regex.Matches(Field(header, "Scan|Skan|Scanliste"), @"\b[0-9A-F]{2}\b", IgnoreCase)
+            .Select(m => m.Value.ToUpperInvariant()).Distinct().ToList();
+        var faults = new List<ReportFault>();
+        var modules = new List<VcdsModule>();
+        VcdsModule? module = null;
+        string code = "", endDetails = "";
+        var details = new List<string>();
+        bool inFaults = false;
+
+        void Flush()
+        {
+            if (code.Length > 0)
+                faults.Add(new(module is null ? "" : (module.Address + " " + module.Name).Trim(), code, string.Join("\n", details).Trim()));
+            code = "";
+            details.Clear();
+        }
+
+        foreach (string line in lines)
+        {
+            var section = ModuleHeader.Match(line);
+            if (section.Success)
+            {
+                Flush();
+                module = new(section.Groups["address"].Value.ToUpperInvariant(), section.Groups["name"].Value.Trim(), section.Groups["labels"].Value.Trim());
+                modules.Add(module);
+                inFaults = false;
+                continue;
+            }
+            if (Regex.IsMatch(line, @"^(?:End|Koniec|Ende)\b", IgnoreCase))
+            {
+                Flush();
+                endDetails = line;
+                break;
+            }
+            if (Regex.IsMatch(line, @"^(?:No fault(?: codes?)? found|Brak (?:kodów błędów|błędów|usterek)|Nie znaleziono (?:błędów|usterek)|Kein(?:e)? Fehler(?:code)? gefunden)\b", IgnoreCase))
+            {
+                Flush();
+                if (module is not null) module.ReportedFaults = 0;
+                inFaults = false;
+                continue;
+            }
+            var count = Regex.Match(line, @"^(?:Znaleziono\s+)?(?<count>\d+)\s+(?:Faults? Found|błęd\p{L}*|uster\p{L}*|Fehler(?: gefunden)?)\b", IgnoreCase);
+            if (count.Success && int.TryParse(count.Groups["count"].Value, out int found))
+            {
+                Flush();
+                if (module is not null) module.ReportedFaults = found;
+                inFaults = found > 0;
+                continue;
+            }
+            if (module is not null && !inFaults)
+            {
+                var part = Regex.Match(line, @"^(?:Part No(?: SW)?|Teilenummer(?: SW)?|Nr części(?: SW)?)\s*:\s*(?<sw>.*?)(?:\s+HW\s*:\s*(?<hw>.+))?$", IgnoreCase);
+                if (part.Success)
+                {
+                    module.Software = part.Groups["sw"].Value.Trim();
+                    module.Hardware = part.Groups["hw"].Value.Trim();
+                }
+                var field = Regex.Match(line, @"^(?<key>Component|Bauteil|Komponent|Coding|Codierung|Kodowanie|Revision|Rewizja)\s*:\s*(?<value>.*)", IgnoreCase);
+                if (field.Success)
+                {
+                    string value = field.Groups["value"].Value;
+                    switch (field.Groups["key"].Value.ToLowerInvariant())
+                    {
+                        case "component": case "bauteil": case "komponent": module.Component = value; break;
+                        case "coding": case "codierung": case "kodowanie": module.Coding = value; break;
+                        default: module.Revision = value; break;
+                    }
+                }
+            }
+            var fault = Regex.Match(line, @"^(?<code>\d{5,6}|[PCBU][0-9A-F]{4})\s*(?:[-:]\s*|(?=\d\d\s*\[))(?<details>.+)$", IgnoreCase);
+            if (fault.Success && (inFaults || char.IsLetter(fault.Groups["code"].Value[0])))
+            {
+                inFaults = true;
+                string nextCode = fault.Groups["code"].Value.ToUpperInvariant();
+                if (Regex.IsMatch(code, @"^\d+$") && details.Count <= 1 && char.IsLetter(nextCode[0]))
+                {
+                    code += " / " + nextCode;
+                    details.Add(line);
+                    continue;
+                }
+                Flush();
+                code = nextCode;
+                details.Add(fault.Groups["details"].Value);
+            }
+            else if (code.Length > 0 && !Regex.IsMatch(line, @"^[-=]{3,}$"))
+                details.Add(line);
+        }
+        Flush();
+
+        return new(vehicle, faults)
+        {
+            ScannedAt = ReadDate(lines),
+            MileageKm = mileage,
+            Chassis = chassis.Groups["code"].Value,
+            ChassisDescription = description,
+            Version = Field(header, "VCDS[ -]Version|VCDS Version"),
+            LicensePlate = Regex.Match(header, @"\b(?:License Plate|Numer rejestracyjny|Kennzeichen)[\t ]*:[\t ]*(?<plate>[^\r\n]*?)(?=[\t ]*(?:$|\r|\n|(?:Mileage|Repair Order)[\t ]*:))", IgnoreCase | RegexOptions.Multiline).Groups["plate"].Value.Trim(),
+            EndDetails = endDetails,
+            RequestedAddresses = addresses,
+            Modules = modules
+        };
+    }
+
+    static DateTime? ReadDate(IEnumerable<string> lines)
+    {
+        foreach (string line in lines.Take(5))
+        {
+            var date = Regex.Match(line, @"^[\p{L}]+,(\d{1,2}),([\p{L}.]+),(\d{4}),(\d{1,2}:\d{2}:\d{2})");
+            if (!date.Success) continue;
+            string value = string.Join(" ", date.Groups.Cast<Group>().Skip(1).Select(g => g.Value));
+            foreach (string culture in new[] { "en-US", "pl-PL", "de-DE" })
+                if (DateTime.TryParseExact(value, ["d MMMM yyyy H:mm:ss", "d MMM yyyy H:mm:ss"],
+                    CultureInfo.GetCultureInfo(culture), DateTimeStyles.AllowWhiteSpaces, out var result))
+                    return result;
+        }
+        return null;
+    }
+
+    static string Field(string text, string name) =>
+        Regex.Match(text, @"(?im)^[\t ]*(?:" + name + @")[\t ]*:[\t ]*(?<value>[^\r\n]+)").Groups["value"].Value.Trim();
+}
+
+public sealed record SavedAutoScan(string Name, string Hash, VehicleReport Report);
