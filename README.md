@@ -13,7 +13,7 @@ Repozytorium jest obecnie **PUBLICZNE**. Nie umieszczać tutaj logów z samochod
 
 ## Budowanie
 
-Wymagane Windows i .NET SDK 10. Otwórz `DiagScope2-review-20261110/DiagScope2.csproj`.
+Wymagane Windows i .NET SDK 10. Aktualny program: `DiagScope2-aktualny-20261115/DiagScope2.csproj`. Starszy katalog `DiagScope2-review-20261110/` służy tylko jako archiwum. Agent korzysta z najnowszego silnika programu.
 Prototyp agenta kompiluje się jako osobny program konsolowy, odnoszący się do silnika programu.
 
 Ta kopia nie nadpisuje bieżącej instalacji programu na komputerze. Testy integracji z VCDS/LPGTECH przy aucie wymagają odrębnej weryfikacji.
