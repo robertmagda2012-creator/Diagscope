@@ -16,6 +16,18 @@ try {
     if (Test-Path 'C:\DiagScope\Pojazdy') { $dlg.InitialDirectory = 'C:\DiagScope\Pojazdy' }
     if ($dlg.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) { return }
     $log = $dlg.FileName
+    if ($log.EndsWith('.jsonl', [StringComparison]::OrdinalIgnoreCase)) {
+        $firstRow = Get-Content -LiteralPath $log -TotalCount 1 -Encoding UTF8
+        if ($firstRow -match '"type"\s*:\s*"lpg_ui_frame"') {
+            [System.Windows.Forms.MessageBox]::Show(
+                'Ten log LPGTECH TECH 316 pochodzi z automatycznego odczytu ekranu. Obecny importer nie odczytuje jeszcze poprawnie ramek lpg_ui_frame. Nie uruchamiam nierzetelnej analizy.',
+                'DiagScope - format LPGTECH wymaga poprawy',
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Warning
+            ) | Out-Null
+            return
+        }
+    }
 
     $choice = [System.Windows.Forms.MessageBox]::Show(
         'Czy analizowany pojazd ma instalacje LPG? Wybierz TAK dla LPG, NIE dla benzyny/diesla.',
