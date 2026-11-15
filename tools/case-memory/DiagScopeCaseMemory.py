@@ -73,6 +73,12 @@ def sha256file(path: Path) -> str:
 def record(con: sqlite3.Connection, log_path: Path, report_path: Path, has_lpg: bool) -> tuple[int, bool]:
     if not log_path.is_file() or not report_path.is_file():
         raise FileNotFoundError("Nie znaleziono logu lub raportu.")
+    # LPGTECH UIAutomation frames are not yet imported correctly by DiagScope.Engine.
+    # Refuse to learn from a misleading one-row interpretation of a many-frame log.
+    with log_path.open("rb") as source:
+        first_frame = source.readline(8192)
+    if b'"lpg_ui_frame"' in first_frame:
+        raise ValueError("Ten format LPGTECH UI nie jest jeszcze poprawnie importowany; nie zapisano go do bazy wiedzy.")
     report = json.loads(report_path.read_text(encoding="utf-8-sig"))
     if not isinstance(report, dict):
         raise ValueError("Niepoprawny format raportu.")
