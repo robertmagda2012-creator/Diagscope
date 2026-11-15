@@ -6,6 +6,6 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\DiagScope2-review-20261110\Engine\DiagScope.Engine.csproj" />
+    <ProjectReference Include="..\DiagScope2-aktualny-20261115\Engine\DiagScope.Engine.csproj" />
   </ItemGroup>
 </Project>
