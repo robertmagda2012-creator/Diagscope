@@ -20,7 +20,7 @@ public partial class App {
      throw new Exception("The Vehicles tab is not first and selected at startup, or the standalone Auto Scan tab is present.");
     if(Environment.GetEnvironmentVariable("DIAGSCOPE_DTC_SMOKE") is { } dtcMode)
     {
-     string result = await window.CheckDtcImport(dtcMode == "restart");
+     string result = window.CheckDtcImport(dtcMode == "restart");
      File.WriteAllText(Path.Combine(dir,"ui-result.txt"),result);
      Shutdown(0);
      return;

@@ -420,18 +420,9 @@ public partial class MainWindow
         string known = KnownPolishFault(fault);
         string original = FaultDescription(fault);
         string local = known.Length > 0 ? known : DtcTranslations.Local(original);
-        var row = FaultColumns(fault.Code, local.Length > 0 ? local :
+        return FaultColumns(fault.Code, local.Length > 0 ? local :
             original.Length > 0 ? original + " · brak tłumaczenia" : "Brak opisu w raporcie",
             FaultController(fault), PolishStatus(fault), arrow);
-        if (local.Length > 0 || original.Length == 0) return row;
-
-        var description = (TextBlock)row.Children[1];
-        description.Loaded += async (_, _) =>
-        {
-            string translated = await DtcTranslations.TranslateAsync(original);
-            if (translated.Length > 0) description.Text = translated;
-        };
-        return row;
     }
 
     static string PolishStatus(ReportFault fault)

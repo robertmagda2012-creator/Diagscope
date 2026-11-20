@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 
@@ -6,10 +7,13 @@ namespace DiagScope2;
 
 public partial class MainWindow
 {
-    internal async Task<string> CheckDtcImport(bool restart)
+    internal string CheckDtcImport(bool restart)
     {
         const string knownVin = "WAUZZZ4BZWN123456";
         const string description = "Steering Angle Sensor: No Signal";
+        const string cachedTranslation = "Czujnik kąta skrętu — brak sygnału";
+        string cachePath = Path.Combine(Store.Root, "DtcTranslations.json");
+        static string DisplayedDescription(ReportFault fault) => ((TextBlock)FaultRow(fault, "").Children[1]).Text;
         void Check(bool ok, string reason)
         {
             if (!ok) throw new InvalidOperationException(reason);
@@ -24,8 +28,9 @@ public partial class MainWindow
             Check(showVehicleCard && study.AutoScans.Count == 2 && study.Dtcs.Count == 2, "Vehicle card did not reopen with both readings.");
             Check(study.AutoScans[0].ImportSource == VcdsFileSource && study.AutoScans[1].ImportSource == VcdsClipboardSource,
                 "Reading provenance did not survive restart.");
-            Check(DtcTranslations.Local(description).Length > 0, "Online translation did not load from local cache after restart.");
-            return "PASS restart: vehicle card, two studies, two readings, original archive and offline translation cache.";
+            var savedFault = study.AutoScans[1].Report.Faults.Single();
+            Check(DisplayedDescription(savedFault) == cachedTranslation, "Saved translation was not displayed after restart.");
+            return "PASS restart: vehicle card, two studies, two readings, original archive and local translation cache.";
         }
 
         var target = new Vehicle { Make = "Audi", Vin = knownVin };
@@ -108,14 +113,15 @@ public partial class MainWindow
             "Control Module Part Number: 8E0 614 517\n1 Fault Found:\n00532 - Supply Voltage B+\n  07-10 - Signal too Low", true).Single();
         Check(withoutAddress.Faults.Single().Controller == "8E0 614 517" && withoutAddress.Modules.Single().Address == "",
             "Standalone module identification without an address was not preserved.");
-        Check(!DtcTranslations.IsShareableDescription("VIN WAUZZZ4BZWN123456") &&
-            (await DtcTranslations.TranslateAsync("VIN WAUZZZ4BZWN123456")).Length == 0 &&
-            ((TextBlock)FaultRow(new ReportFault("", "00120", "VIN WAUZZZ4BZWN123456"), "").Children[1]).Text.EndsWith("brak tłumaczenia"),
-            "Translation did not protect identifiers or show the fallback.");
-        string translated = await DtcTranslations.TranslateAsync(description);
-        Check(translated.Length > 0 && translated != description && DtcTranslations.Local(description) == translated &&
-            File.Exists(Path.Combine(Store.Root, "DtcTranslations.json")), "Live translation or persistent cache failed.");
+        Check(DisplayedDescription(fileFault) == KnownPolishFault(fileFault),
+            "The built-in translation was not displayed.");
+        Check(DisplayedDescription(fault) == description + " · brak tłumaczenia" && !File.Exists(cachePath),
+            "An unknown fault did not retain its original description with an empty local cache.");
+        Store.WriteAtomic(cachePath, JsonSerializer.Serialize(new Dictionary<string, string>
+        {
+            [description] = cachedTranslation
+        }, Store.Options));
         ShowVehicleCard();
-        return "PASS import: saved card action, TXT engine, clipboard data ABS, matching/missing/mismatching VIN, preserved history and archives, known/local and live translations, original fallback.";
+        return "PASS import: TXT and clipboard readings, VIN checks, preserved history and archives, built-in translation and original fallback.";
     }
 }

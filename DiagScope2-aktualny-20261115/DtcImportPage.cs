@@ -149,8 +149,6 @@ public partial class MainWindow
             studyIsDraft = false;
         }
         else SetActiveStudy(target);
-        foreach (var fault in additions.SelectMany(scan => scan.Report.Faults))
-            if (KnownPolishFault(fault).Length == 0) _ = DtcTranslations.TranslateAsync(FaultDescription(fault));
         return additions.Length;
     }
 
